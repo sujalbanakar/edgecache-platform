@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: edgecache-redis
+    command: redis-server --maxmemory 100mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+
+  origin-server:
+    build: ./origin-server
+    container_name: edgecache-origin
+    environment:
+      - PORT=4000
+    ports:
+      - "4000:4000"
+
+  edge-1:
+    build: ./edge-node
+    container_name: edgecache-edge-1
+    environment:
+      - NODE_ID=edge-1
+      - PORT=5001
+      - ORIGIN_URL=http://origin-server:4000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "5001:5001"
+    depends_on:
+      - redis
+      - origin-server
+
+  edge-2:
+    build: ./edge-node
+    container_name: edgecache-edge-2
+    environment:
+      - NODE_ID=edge-2
+      - PORT=5002
+      - ORIGIN_URL=http://origin-server:4000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "5002:5002"
+    depends_on:
+      - redis
+      - origin-server
+
+  edge-3:
+    build: ./edge-node
+    container_name: edgecache-edge-3
+    environment:
+      - NODE_ID=edge-3
+      - PORT=5003
+      - ORIGIN_URL=http://origin-server:4000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "5003:5003"
+    depends_on:
+      - redis
+      - origin-server
+
+  gateway:
+    build: ./gateway
+    container_name: edgecache-gateway
+    environment:
+      - PORT=8080
+      - EDGE_NODES=http://edge-1:5001,http://edge-2:5002,http://edge-3:5003
+    ports:
+      - "8080:8080"
+    depends_on:
+      - edge-1
+      - edge-2
+      - edge-3
+
+  dashboard:
+    build: ./dashboard
+    container_name: edgecache-dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - edge-1
+      - edge-2
+      - edge-3
