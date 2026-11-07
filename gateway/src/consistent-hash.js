@@ -2,12 +2,14 @@ const crypto = require('crypto');
 
 class ConsistentHash {
   constructor(nodes = [], replicas = 50) {
-    this.replicas = replicas;
-    this.ring = new Map();
-    this.keys = [];
-    this.nodes = new Set();
+    this.replicas = replicas;  // 50 virtual points per node
+    this.ring = new Map();     // Hash -> Physical Node address
+    this.keys = [];            // Sorted list of hashes on the ring
+    this.nodes = new Set();    // Set of active physical nodes
 
-    nodes.forEach(node => this.addNode(node));
+    for (let i = 0; i < nodes.length; i++) {
+    this.addNode(nodes[i]);
+    }
   }
 
   _hash(str) {

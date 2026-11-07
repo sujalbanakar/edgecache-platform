@@ -1,6 +1,5 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-const axios = require('axios');
 const ConsistentHash = require('./consistent-hash');
 
 const app = express();
@@ -10,13 +9,12 @@ const configuredNodes = (process.env.EDGE_NODES || 'http://localhost:5001').spli
 const ring = new ConsistentHash(configuredNodes);
 const healthyNodes = new Set(configuredNodes);
 
-// Background health checker: runs every 3 seconds
+// Background health checker using native fetch
 setInterval(async () => {
   for (const node of configuredNodes) {
     try {
-      // Fast ping check on root or any fast path
-      await axios.get(`${node}/healthz`, { timeout: 1000 });
-      if (!healthyNodes.has(node)) {
+      const res = await fetch(`${node}/healthz`, { signal: AbortSignal.timeout(1000) });
+      if (res.ok && !healthyNodes.has(node)) {
         console.log(`[HealthCheck] Node recovered: ${node}. Re-adding to hash ring.`);
         healthyNodes.add(node);
         ring.addNode(node);

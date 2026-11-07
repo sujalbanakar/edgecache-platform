@@ -24,6 +24,7 @@ app.get('/healthz', (req, res) => {
 
 app.get('/*', async (req, res) => {
   const startTime = Date.now();
+  //Request started: 1000 ms  Request finished: 1250 ms  ----> Latency: 250 ms
   const cacheKey = `cache:${req.originalUrl}`;
   const lockKey = `locks:${req.originalUrl}`;
 
