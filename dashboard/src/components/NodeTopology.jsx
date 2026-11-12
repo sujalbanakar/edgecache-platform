@@ -8,7 +8,7 @@ export default function NodeTopology({ nodeStatus }) {
       <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#cbd5e1' }}>
         Cluster Topology & Edge Node Health
       </h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
         {nodes.map(([nodeId, isOnline]) => (
           <div
             key={nodeId}

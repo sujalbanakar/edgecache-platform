@@ -4,7 +4,8 @@ import { io } from 'socket.io-client';
 const NODES = [
   { id: 'edge-1', port: 5001 },
   { id: 'edge-2', port: 5002 },
-  { id: 'edge-3', port: 5003 }
+  { id: 'edge-3', port: 5003 },
+  { id: 'edge-4', port: 5004 }
 ];
 
 export function useTelemetry() {
@@ -13,7 +14,8 @@ export function useTelemetry() {
   const [nodeStatus, setNodeStatus] = useState({
     'edge-1': false,
     'edge-2': false,
-    'edge-3': false
+    'edge-3': false,
+    'edge-4': false
   });
 
   useEffect(() => {

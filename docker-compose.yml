@@ -61,18 +61,35 @@ services:
       - redis
       - origin-server
 
+  edge-4:
+    build: ./edge-node
+    container_name: edgecache-edge-4
+    environment:
+      - NODE_ID=edge-4
+      - PORT=5004
+      - ORIGIN_URL=http://origin-server:4000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "5004:5004"
+    depends_on:
+      - redis
+      - origin-server
+      
+
   gateway:
     build: ./gateway
     container_name: edgecache-gateway
     environment:
       - PORT=8080
-      - EDGE_NODES=http://edge-1:5001,http://edge-2:5002,http://edge-3:5003
+      - EDGE_NODES=http://edge-1:5001,http://edge-2:5002,http://edge-3:5003,http://edge-4:5004
     ports:
       - "8080:8080"
     depends_on:
       - edge-1
       - edge-2
       - edge-3
+      - edge-4
 
   dashboard:
     build: ./dashboard

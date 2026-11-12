@@ -29,7 +29,7 @@ setInterval(async () => {
   }
 }, 3000);
 
-app.use('/', (req, res, next) => {
+app.use('/', function handleProxy(req, res, next,retries=2){
   const targetNode = ring.getNode(req.originalUrl);
 
   if (!targetNode) {
@@ -39,11 +39,24 @@ app.use('/', (req, res, next) => {
   createProxyMiddleware({
     target: targetNode,
     changeOrigin: true,
-    onError: (err, pReq, pRes) => {
-      console.error(`Proxy error to ${targetNode}:`, err.message);
-      pRes.status(502).json({ error: 'Edge gateway upstream failure' });
+    on:
+    {
+      error: (err, pReq, pRes) => {
+      console.warn(`[Failover] ${targetNode} crashed mid-request. Retrying...`);
+
+      healthyNodes.delete(targetNode);
+      ring.removeNode(targetNode);
+
+      if(retries > 0 && !pRes.headersSent) {
+         handleProxy(pReq, pRes, next,retries-1);
+      }
+      
+      if(!pRes.headersSent) {
+        pRes.status(502).json({ error: 'Edge gateway upstream failure' });
+      }
     }
-  })(req, res, next);
+  }
+  })(req, res, next); 
 });
 
 app.listen(PORT, () => {
