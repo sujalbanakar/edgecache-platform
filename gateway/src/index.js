@@ -4,12 +4,15 @@ const ConsistentHash = require('./consistent-hash');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const configuredNodes = (process.env.EDGE_NODES || 'http://localhost:5001').split(',');
+const configuredNodes = (process.env.EDGE_NODES || 'http://localhost:5001')
+  .split(',')
+  .map((n) => n.trim())
+  .filter(Boolean); 
 
 const ring = new ConsistentHash(configuredNodes);
 const healthyNodes = new Set(configuredNodes);
 
-// Background health checker using native fetch
+// Active health check: polls every 2 seconds
 setInterval(async () => {
   for (const node of configuredNodes) {
     try {
@@ -21,44 +24,45 @@ setInterval(async () => {
       }
     } catch {
       if (healthyNodes.has(node)) {
-        console.warn(`[HealthCheck] Node failure detected: ${node}. Pruning from hash ring.`);
+        console.warn(`[HealthCheck] Node down: ${node}. Pruning from hash ring.`);
         healthyNodes.delete(node);
         ring.removeNode(node);
       }
     }
   }
-}, 3000);
+}, 2000);
 
-app.use('/', function handleProxy(req, res, next,retries=2){
+function handleProxy(req, res, next, retries = configuredNodes.length) {
   const targetNode = ring.getNode(req.originalUrl);
 
   if (!targetNode) {
     return res.status(503).json({ error: 'All edge nodes are unavailable' });
   }
 
+  const onProxyError = (err, pReq, pRes) => {
+    console.warn(`[Failover] ${targetNode} failed (${err.code || err.message}). Pruning & retrying...`);
+    healthyNodes.delete(targetNode);
+    ring.removeNode(targetNode);
+
+    if (retries > 1 && !pRes.headersSent) {
+      return handleProxy(req, res, next, retries - 1);
+    }
+
+    if (!pRes.headersSent) {
+      pRes.status(503).json({ error: 'All edge nodes are unavailable' });
+    }
+  };
+
   createProxyMiddleware({
     target: targetNode,
     changeOrigin: true,
-    on:
-    {
-      error: (err, pReq, pRes) => {
-      console.warn(`[Failover] ${targetNode} crashed mid-request. Retrying...`);
+    onError: onProxyError,         // Support http-proxy-middleware v2
+    on: { error: onProxyError }    // Support http-proxy-middleware v3
+  })(req, res, next);
+}
 
-      healthyNodes.delete(targetNode);
-      ring.removeNode(targetNode);
-
-      if(retries > 0 && !pRes.headersSent) {
-         handleProxy(pReq, pRes, next,retries-1);
-      }
-      
-      if(!pRes.headersSent) {
-        pRes.status(502).json({ error: 'Edge gateway upstream failure' });
-      }
-    }
-  }
-  })(req, res, next); 
-});
+app.use('/', (req, res, next) => handleProxy(req, res, next));
 
 app.listen(PORT, () => {
-  console.log(`Gateway active with health checking on port ${PORT}`);
+  console.log(`Gateway active on port ${PORT} with nodes:`, configuredNodes);
 });

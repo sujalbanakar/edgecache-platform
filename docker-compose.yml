@@ -96,7 +96,11 @@ services:
     container_name: edgecache-dashboard
     ports:
       - "3000:3000"
+    environment:
+      - HOST=0.0.0.0
+      - WATCHPACK_POLLING=true
     depends_on:
       - edge-1
       - edge-2
       - edge-3
+      - edge-4
