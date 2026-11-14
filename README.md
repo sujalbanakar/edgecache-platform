@@ -33,5 +33,65 @@ A distributed, fault-tolerant edge caching and CDN simulation built with Node.js
        └──► [ Edge Node 3 (:5003) ] ──┘          │ (Cache Miss & Lock)
                                                  ▼
                                      [ Origin Server (:4000) ]
+```
 
-                                     
+---
+
+## How to Run the Project
+
+### 1. Prerequisites
+- **Docker Desktop** (with Docker Compose enabled and running)
+- **Git**
+
+### 2. Clone the Repository
+```bash
+git clone https://github.com/sujalbanakar/edgecache-platform.git
+cd edgecache-platform
+```
+
+### 3. Build & Start the Cluster
+Spin up all microservices (Gateway, Edge Nodes, Origin Server, Redis, and React Dashboard) in detached mode:
+```bash
+docker compose up --build -d
+```
+
+Verify that all containers are running:
+```bash
+docker compose ps
+```
+
+### 4. Access Service Endpoints
+- **Telemetry Dashboard (UI):** `http://localhost:3000`
+- **Edge Gateway (API Entrypoint):** `http://localhost:8080`
+- **Origin Server:** `http://localhost:4000`
+- **Redis Cache:** `localhost:6379`
+
+---
+
+## Testing & Verification
+
+### 1. Test Cache-Aside (Miss vs. Hit)
+Send an initial request through the Gateway:
+```bash
+curl http://localhost:8080/api/heavy-feed
+```
+- **First request (`MISS`):** Takes ~1200ms (simulated origin latency) and populates Redis with a 30s TTL.
+- **Second request (`HIT`):** Run the same command again—response returns in `<2ms` directly from Redis.
+
+### 2. Test Dynamic Node Failover
+1. Open the live dashboard at `http://localhost:3000`.
+2. Stop one of the edge containers:
+   ```bash
+   docker stop edgecache-edge-3
+   ```
+3. The dashboard marks `edge-3` as **DOWN / FAILOVER**, and the Gateway automatically prunes it from the hash ring and routes traffic to healthy peers.
+4. Restart the container to observe automatic recovery:
+   ```bash
+   docker start edgecache-edge-3
+   ```
+
+### 3. Stop the Cluster
+To shut down and remove all running containers:
+```bash
+docker compose down
+```
