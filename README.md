@@ -1,97 +1,245 @@
-# EdgeCache — Distributed CDN & Edge Caching Platform
+# EdgeCache --- Distributed CDN & Edge Caching Platform
 
-A distributed, fault-tolerant edge caching and CDN simulation built with Node.js, Redis, Docker, and React. EdgeCache demonstrates horizontal scale-out routing, cache-aside deduplication, distributed lock coordination, and real-time operational telemetry.
+EdgeCache is a distributed CDN and edge-caching simulation built with
+**Node.js, Express, Redis, Docker, React, and Socket.IO**. It
+demonstrates how multiple edge servers can share cached responses,
+distribute incoming traffic, reduce repeated Origin requests, and
+recover from edge-node failures.
 
----
+The project includes a Gateway, four Edge Server instances, a shared
+Redis cache, an Origin Server, and a real-time monitoring dashboard.
 
-## Key Architecture & Features
+## Key Features
 
-- **Dynamic Consistent Hashing with Virtual Nodes**: 
-  - Routes inbound traffic across distributed edge instances (`edge-1`, `edge-2`, `edge-3`) using MD5 hash distribution with 50 virtual replicas per physical node.
-  - Minimizes cache invalidation ripples during cluster resizing and dynamic node removal.
-- **Cache-Aside Architecture with Redis**:
-  - Intercepts requests at edge instances, serving cached responses in `<2ms` with configurable TTLs and `allkeys-lru` eviction policies, cutting origin compute load by over 80%.
-- **Thundering Herd Mitigation**:
-  - Leverages local **in-process request coalescing** (promise deduplication) combined with **Redlock distributed locking** across edge containers to guarantee only a single upstream fetch occurs for concurrent cache misses on identical keys.
-- **Active Health Probing & Zero-Downtime Failover**:
-  - Gateway background polling detects node downtime within 3 seconds, prunes unreachable instances from the hash ring, and transparently reroutes traffic to healthy peers.
-- **Real-Time Telemetry Dashboard**:
-  - Built with React and Socket.io to stream live cluster topology, per-node latency benchmarks, and origin offload ratios directly from containerized edge sockets.
+### 1. Consistent Hashing with Virtual Nodes
 
----
+-   Routes resource keys across **four Edge Server instances** using a
+    consistent hashing ring.
+-   Uses **MD5 hashing** and **50 virtual nodes (replicas) per physical
+    Edge Server**.
+-   Supports adding and removing nodes from the ring.
+-   Consistent hashing limits how many keys need to be reassigned when
+    the cluster membership changes, helping the system scale
+    horizontally.
 
-## System Architecture Flow
+### 2. Redis Cache-Aside with TTL and LRU Eviction
 
-```text
-[ Client Request ]
-       │
-       ▼
-[ Edge Gateway (:8080) ] ──── Consistent Hashing Ring (Virtual Nodes)
-       │
-       ├──► [ Edge Node 1 (:5001) ] ──┐
-       ├──► [ Edge Node 2 (:5002) ] ──┼──► [ Redis LRU Cache (:6379) ]
-       └──► [ Edge Node 3 (:5003) ] ──┘          │ (Cache Miss & Lock)
-                                                 ▼
-                                     [ Origin Server (:4000) ]
+-   Uses a shared Redis instance as the cache layer for all Edge
+    Servers.
+-   Checks Redis before forwarding a request to the Origin Server.
+-   Stores successful Origin responses with a **30-second TTL**.
+-   Configures Redis with a **100 MB maxmemory setting** and the
+    `allkeys-lru` eviction policy.
+-   Cache hits are served from Redis, avoiding the simulated Origin
+    processing delay.
+
+### 3. Thundering Herd Mitigation
+
+-   Uses in-process **Promise-based request coalescing** so concurrent
+    requests for the same key within one Edge Server can share an
+    in-flight operation.
+-   Uses **Redlock with Redis** to coordinate cache-miss work across
+    Edge Server processes.
+-   These mechanisms reduce redundant Origin fetches during concurrent
+    cache misses. They are mitigation mechanisms rather than an
+    unconditional guarantee: fallback paths can still result in
+    duplicate Origin requests.
+
+### 4. Health Monitoring and Automatic Failover
+
+-   The Gateway periodically probes the Edge Servers at a **3-second
+    health-check interval**.
+-   Unhealthy nodes are removed from the consistent hashing ring.
+-   Recovered nodes are added back to the ring.
+-   If a request is routed to an unavailable Edge Server, the Gateway
+    selects another healthy Edge Server and retries the request.
+-   Failure detection and failover have been tested by stopping an Edge
+    Server and observing traffic continue through the remaining healthy
+    nodes.
+
+### 5. Real-Time Monitoring Dashboard
+
+-   Built with React and Socket.IO.
+-   Displays live request logs, including cache status, request path,
+    and serving Edge Server.
+-   Shows Edge Server online/offline connectivity status.
+-   Tracks cache HIT/MISS statistics.
+-   Displays a latency matrix for comparing Edge Server latency.
+-   Displays the Origin offload ratio, representing the share of
+    requests served without reaching the Origin Server.
+
+## Architecture
+
+``` text
+                         ┌──────────────────────┐
+                         │      React UI        │
+                         │ Monitoring Dashboard │
+                         └──────────┬───────────┘
+                                    │ Socket.IO telemetry
+                                    │
+┌────────┐      ┌──────────────────▼──────────────────┐
+│ Client │ ───▶ │             Gateway                 │
+└────────┘      │              :8080                  │
+                │       Consistent Hashing            │
+                │       Health Checks / Retry         │
+                └───┬────────┬────────┬────────┬──────┘
+                    │        │        │        │
+                 ┌──▼───┐ ┌──▼───┐ ┌──▼───┐ ┌──▼───┐
+                 │Edge 1│ │Edge 2│ │Edge 3│ │Edge 4│
+                 │ :5001│ │ :5002│ │ :5003│ │ :5004│
+                 └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘
+                    └────────┴────┬───┴────────┘
+                                  │
+                         ┌────────▼────────┐
+                         │  Shared Redis   │
+                         │     :6379       │
+                         │ Cache + Redlock │
+                         └────────┬────────┘
+                                  │ Cache miss
+                         ┌────────▼────────┐
+                         │  Origin Server  │
+                         │     :4000       │
+                         └─────────────────┘
 ```
 
----
+**Request flow:** The Gateway selects an Edge Server using the
+consistent hashing ring. The Edge Server checks Redis for the requested
+resource. On a cache hit, it returns the cached response. On a cache
+miss, request coalescing and the distributed lock help coordinate the
+Origin fetch; the response is then cached with the configured TTL.
 
-## How to Run the Project
+The dashboard receives telemetry directly from the Edge Server Socket.IO
+connections.
 
-### 1. Prerequisites
-- **Docker Desktop** (with Docker Compose enabled and running)
-- **Git**
+## Technology Stack
 
-### 2. Clone the Repository
-```bash
+  -----------------------------------------------------------------------
+  Layer                               Technologies
+  ----------------------------------- -----------------------------------
+  Gateway and Edge Servers            Node.js, Express
+
+  Routing                             Custom consistent hashing, MD5,
+                                      virtual nodes
+
+  Caching and coordination            Redis, ioredis, Redlock
+
+  Request coordination                JavaScript Promises, in-process
+                                      request coalescing
+
+  Real-time telemetry                 Socket.IO
+
+  Dashboard                           React
+
+  Containerization                    Docker, Docker Compose
+  -----------------------------------------------------------------------
+
+## Getting Started
+
+### Prerequisites
+
+-   [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+-   Git
+
+### 1. Clone the repository
+
+``` bash
 git clone https://github.com/sujalbanakar/edgecache-platform.git
 cd edgecache-platform
 ```
 
-### 3. Build & Start the Cluster
-Spin up all microservices (Gateway, Edge Nodes, Origin Server, Redis, and React Dashboard) in detached mode:
-```bash
+### 2. Build and start the services
+
+``` bash
 docker compose up --build -d
 ```
 
-Verify that all containers are running:
-```bash
+### 3. Check running containers
+
+``` bash
 docker compose ps
 ```
 
-### 4. Access Service Endpoints
-- **Telemetry Dashboard (UI):** `http://localhost:3000`
-- **Edge Gateway (API Entrypoint):** `http://localhost:8080`
-- **Origin Server:** `http://localhost:4000`
-- **Redis Cache:** `localhost:6379`
+### 4. Open the services
 
----
+  Service           URL
+  ----------------- -----------------------
+  React Dashboard   http://localhost:3000
+  Gateway           http://localhost:8080
+  Origin Server     http://localhost:4000
+  Redis             localhost:6379
 
-## Testing & Verification
+## Testing the System
 
-### 1. Test Cache-Aside (Miss vs. Hit)
-Send an initial request through the Gateway:
-```bash
+### 1. Verify cache HIT and MISS behavior
+
+Send a request to the Gateway:
+
+``` bash
 curl http://localhost:8080/api/heavy-feed
 ```
-- **First request (`MISS`):** Takes ~1200ms (simulated origin latency) and populates Redis with a 30s TTL.
-- **Second request (`HIT`):** Run the same command again—response returns in `<2ms` directly from Redis.
 
-### 2. Test Dynamic Node Failover
-1. Open the live dashboard at `http://localhost:3000`.
-2. Stop one of the edge containers:
-   ```bash
-   docker stop edgecache-edge-3
-   ```
-3. The dashboard marks `edge-3` as **DOWN / FAILOVER**, and the Gateway automatically prunes it from the hash ring and routes traffic to healthy peers.
-4. Restart the container to observe automatic recovery:
-   ```bash
-   docker start edgecache-edge-3
-   ```
+-   **First request --- MISS:** The Edge Server does not find the key in
+    Redis and fetches the response from the Origin Server. The Origin
+    Server includes a simulated delay of approximately **1200 ms**.
+-   **Subsequent request --- HIT:** The response is served from Redis
+    while the cache entry remains valid.
 
-### 3. Stop the Cluster
-To shut down and remove all running containers:
-```bash
+The cache-hit latency is not presented here as a fixed sub-2 ms
+benchmark because that value has not been formally measured.
+
+### 2. Test Edge Server failover
+
+Stop one Edge Server:
+
+``` bash
+docker stop edgecache-edge-3
+```
+
+Observe the dashboard and Gateway behavior: - The Edge Server's
+connectivity status changes to offline. - The Gateway detects the
+failure through its periodic health checks. - The failed node is removed
+from the consistent hashing ring. - Requests are routed to another
+healthy Edge Server, with retry handling when a selected Edge Server is
+unavailable.
+
+Restart the Edge Server:
+
+``` bash
+docker start edgecache-edge-3
+```
+
+After recovery, the Gateway detects the node and adds it back to the
+ring.
+
+> If your Docker Compose configuration assigns a different container
+> name, use the actual name shown by `docker compose ps` in the
+> `docker stop` and `docker start` commands.
+
+### 3. Stop the project
+
+``` bash
 docker compose down
 ```
+
+## Performance Notes
+
+-   The Origin Server uses an intentional delay of approximately **1200
+    ms** to make cache behavior observable during testing.
+-   An approximately **80% reduction in Origin requests** was measured
+    under the project's tested workload. This is workload-dependent and
+    should not be interpreted as a universal reduction for every traffic
+    pattern.
+-   Cache responses are served from Redis, but no fixed sub-2 ms latency
+    claim is made without a formal benchmark.
+-   The dashboard exposes cache HIT/MISS activity, Edge Server latency
+    information, and Origin offload ratio to help observe system
+    behavior.
+
+## What This Project Demonstrates
+
+-   Horizontal scaling through multiple Edge Server instances.
+-   Consistent hashing and virtual-node-based request distribution.
+-   Cache-aside design with TTL and LRU eviction.
+-   Local request coalescing and distributed locking.
+-   Health monitoring, node recovery, and request failover.
+-   Real-time monitoring using React and Socket.IO.
